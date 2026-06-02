@@ -2011,6 +2011,8 @@ html[data-theme="dark"] .foot b{ color: var(--accent2) !important; }
     const POS_CATALOGO_DOC_ID = "catalogoProductos";
     const ORDERS_COLLECTION = "pedidosCatalogo";
     let tableFromQr = "";
+    let tableLabelFromQr = "";
+    let qrOriginFromUrl = "";
     let productsUnsub = null;
     let productsPollTimer = null;
 
@@ -2172,13 +2174,14 @@ async function initFirebaseIfConfigured(){
     function applyOrderTypeUI(){
       const tipo = getSelectedOrderType();
       const mesa = ($customerTable?.value || tableFromQr || "").trim();
+      const etiquetaMesa = (tableLabelFromQr || (mesa ? `Mesa ${mesa}` : "")).trim();
       if ($customerOrderType && tableFromQr) $customerOrderType.value = "mesa";
       if ($fieldCustomerTable) $fieldCustomerTable.style.display = (tipo === "domicilio") ? "none" : "flex";
       if ($fieldCustomerAddress) $fieldCustomerAddress.style.display = (tipo === "domicilio") ? "flex" : "none";
       const hint = document.getElementById("orderTypeHint");
       if (hint) {
         hint.textContent = tableFromQr
-          ? `Pedido asignado automáticamente a la mesa ${mesa || tableFromQr}.`
+          ? `Pedido asignado automáticamente a ${etiquetaMesa || ('Mesa ' + (mesa || tableFromQr))}.`
           : (tipo === "domicilio" ? "Este pedido llegará al sistema como domicilio." : tipo === "local" ? "Este pedido llegará como para llevar / recoger." : "Este pedido llegará como pedido para el local.");
       }
       applyTableUI();
@@ -2266,12 +2269,14 @@ async function initFirebaseIfConfigured(){
         estado: "nuevo",
         mesa,
         numeroMesa: mesa,
+        mesaLabel: tableLabelFromQr || (mesa ? `Mesa ${mesa}` : ''),
         cliente: nombre,
         direccion,
         observaciones: notas,
         tipoPedido: tipoPedidoPOS,
         tipoAtencion: tipo,
         canalPedido: etiquetaTipo,
+        origenQr: qrOriginFromUrl || (tableFromQr ? 'qr_mesa' : ''),
         qrMesa: !!tableFromQr,
         pedidoLocal: tipo !== "domicilio",
         pedidoDomicilio: tipo === "domicilio",
@@ -2288,15 +2293,27 @@ async function initFirebaseIfConfigured(){
       };
     }
 
-    function getTableFromUrl(){
+    function leerParametroCatalogo(nombre){
       try{
         const sp = new URLSearchParams(location.search);
-        const direct = sp.get("mesa") || sp.get("table") || sp.get("m") || "";
-        if (direct) return direct;
+        const directo = sp.get(nombre);
+        if (directo) return directo;
         const h = (location.hash || "").replace(/^#/, "");
         const hp = new URLSearchParams(h);
-        return hp.get("mesa") || hp.get("table") || hp.get("m") || "";
+        return hp.get(nombre) || "";
       }catch{ return ""; }
+    }
+
+    function getTableFromUrl(){
+      return (leerParametroCatalogo("mesa") || leerParametroCatalogo("table") || leerParametroCatalogo("m") || "").trim();
+    }
+
+    function getTableLabelFromUrl(){
+      return (leerParametroCatalogo("mesaLabel") || leerParametroCatalogo("mesaNombre") || leerParametroCatalogo("tableLabel") || "").trim();
+    }
+
+    function getQrOriginFromUrl(){
+      return (leerParametroCatalogo("origen") || leerParametroCatalogo("source") || "").trim();
     }
 
     function applyTableUI(){
@@ -2310,7 +2327,7 @@ async function initFirebaseIfConfigured(){
       }
       if (mesa) {
         pill.style.display = "inline-flex";
-        meta.textContent = `Mesa ${mesa}`;
+        meta.textContent = tableLabelFromQr || `Mesa ${mesa}`;
       } else {
         pill.style.display = "none";
       }
@@ -2338,7 +2355,10 @@ async function initFirebaseIfConfigured(){
           const mesa = i + 1;
           const url = new URL(base, location.href);
           url.searchParams.delete("qr");
+          url.searchParams.set("tipo", "mesa");
+          url.searchParams.set("origen", "qr_mesa");
           url.searchParams.set("mesa", String(mesa));
+          url.searchParams.set("mesaLabel", `Mesa ${mesa}`);
           const qr = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url.toString())}`;
           return `<div class="card" style="grid-column:span 3;padding:14px;text-align:center"><h3>Mesa ${mesa}</h3><img src="${qr}" style="width:180px;height:180px;margin:auto"/><p style="font-size:10px;color:var(--muted);word-break:break-all">${escapeHtml(url.toString())}</p></div>`;
         }).join("");
@@ -2564,13 +2584,18 @@ function applyI18n(){
 
     // Customer persisted
     tableFromQr = getTableFromUrl();
+    tableLabelFromQr = getTableLabelFromUrl();
+    qrOriginFromUrl = getQrOriginFromUrl();
     if ($customerOrderType) {
       $customerOrderType.value = tableFromQr ? "mesa" : (localStorage.getItem(LS.orderType) || "mesa");
       if (tableFromQr) $customerOrderType.disabled = true;
     }
     if ($customerTable) {
       $customerTable.value = tableFromQr || localStorage.getItem(LS.table) || "";
-      if (tableFromQr) $customerTable.readOnly = true;
+      if (tableFromQr) {
+        $customerTable.readOnly = true;
+        $customerTable.title = tableLabelFromQr || `Mesa ${tableFromQr}`;
+      }
     }
     $customerName.value = customer.name || "";
     $customerAddress.value = customer.address || "";
