@@ -871,7 +871,7 @@
       gap: 6px;
     }
     .field label{ font-size: 12px; color: var(--muted); }
-    .field input, .field textarea{
+    .field input, .field textarea, .field select{
       border: 1px solid var(--line);
       background: var(--panel);
       color: var(--text);
@@ -880,11 +880,11 @@
       outline: none;
       font-size: 13px;
     }
-    .field input:focus-visible, .field textarea:focus-visible{
+    .field input:focus-visible, .field textarea:focus-visible, .field select:focus-visible{
       box-shadow: 0 0 0 3px rgba(184,135,74,.18), var(--shadow2);
       border-color: rgba(184,135,74,.35);
     }
-    html[data-theme="dark"] .field input:focus-visible, html[data-theme="dark"] .field textarea:focus-visible{
+    html[data-theme="dark"] .field input:focus-visible, html[data-theme="dark"] .field textarea:focus-visible, html[data-theme="dark"] .field select:focus-visible{
       border-color: rgba(195,154,91,.35);
     }
     .hint{ font-size: 12px; color: var(--muted); margin: 0; }
@@ -1689,11 +1689,20 @@ html[data-theme="dark"] .foot b{ color: var(--accent2) !important; }
           <label data-i18n="customer_name">Tu nombre</label>
           <input id="customerName" placeholder="Ej: Mike" />
         </div>
-        <div class="field">
+        <div class="field" id="fieldOrderType">
+          <label data-i18n="order_type">Tipo de pedido</label>
+          <select id="customerOrderType">
+            <option value="mesa" data-i18n="order_type_table">En mesa / local</option>
+            <option value="domicilio" data-i18n="order_type_delivery">Domicilio</option>
+            <option value="local" data-i18n="order_type_pickup">Para llevar / recoger</option>
+          </select>
+          <p class="hint" id="orderTypeHint">Si escaneaste un QR de mesa, este dato queda asignado automáticamente.</p>
+        </div>
+        <div class="field" id="fieldCustomerTable">
           <label data-i18n="table_number">Mesa</label>
           <input id="customerTable" placeholder="Ej: 1" />
         </div>
-        <div class="field">
+        <div class="field" id="fieldCustomerAddress">
           <label data-i18n="customer_address">Dirección (si es domicilio)</label>
           <input id="customerAddress" placeholder="Ej: Carrera 1 #2-3, apto 401" />
         </div>
@@ -1779,6 +1788,10 @@ html[data-theme="dark"] .foot b{ color: var(--accent2) !important; }
         cat_bebidas: "Bebidas",
         cat_comida: "Comida",
         cat_adiciones: "Adiciones",
+        order_type: "Tipo de pedido",
+        order_type_table: "En mesa / local",
+        order_type_delivery: "Domicilio",
+        order_type_pickup: "Para llevar / recoger",
         table_number: "Mesa",
         cat_almuerzo: "Almuerzo",
         cat_cena: "Cena",
@@ -1861,6 +1874,10 @@ html[data-theme="dark"] .foot b{ color: var(--accent2) !important; }
         cat_bebidas: "Drinks",
         cat_comida: "Food",
         cat_adiciones: "Add-ons",
+        order_type: "Order type",
+        order_type_table: "At table / dine-in",
+        order_type_delivery: "Delivery",
+        order_type_pickup: "Takeout / pickup",
         table_number: "Table",
         cat_almuerzo: "Lunch",
         cat_cena: "Dinner",
@@ -2140,18 +2157,53 @@ async function initFirebaseIfConfigured(){
       return salida;
     }
 
+    function getSelectedOrderType(){
+      const tipo = String($customerOrderType?.value || "").trim().toLowerCase();
+      if (tableFromQr) return "mesa";
+      return ["mesa", "domicilio", "local"].includes(tipo) ? tipo : "mesa";
+    }
+
+    function isDeliveryOrder(){ return getSelectedOrderType() === "domicilio"; }
+
+    function getDeliveryFeeForOrder(subtotal = 0){
+      return isDeliveryOrder() && store.deliveryFee && subtotal > 0 ? Number(store.deliveryFee) : 0;
+    }
+
+    function applyOrderTypeUI(){
+      const tipo = getSelectedOrderType();
+      const mesa = ($customerTable?.value || tableFromQr || "").trim();
+      if ($customerOrderType && tableFromQr) $customerOrderType.value = "mesa";
+      if ($fieldCustomerTable) $fieldCustomerTable.style.display = (tipo === "domicilio") ? "none" : "flex";
+      if ($fieldCustomerAddress) $fieldCustomerAddress.style.display = (tipo === "domicilio") ? "flex" : "none";
+      const hint = document.getElementById("orderTypeHint");
+      if (hint) {
+        hint.textContent = tableFromQr
+          ? `Pedido asignado automáticamente a la mesa ${mesa || tableFromQr}.`
+          : (tipo === "domicilio" ? "Este pedido llegará al sistema como domicilio." : tipo === "local" ? "Este pedido llegará como para llevar / recoger." : "Este pedido llegará como pedido para el local.");
+      }
+      applyTableUI();
+      renderCart();
+    }
+
     async function submitOrderToSystem(){
       if (!cart.items.length) return toast(t("toast_empty_cart"));
+      const tipo = getSelectedOrderType();
       const nombre = ($customerName.value || "").trim();
       const mesa = ($customerTable?.value || "").trim();
+      const direccion = ($customerAddress.value || "").trim();
       if (!nombre) {
         toast(lang === "en" ? "Enter your name" : "Escribe tu nombre");
         $customerName.focus();
         return;
       }
-      if (!mesa) {
+      if (tipo === "mesa" && !mesa) {
         toast(lang === "en" ? "Enter your table" : "Ingresa el número de mesa");
         if ($customerTable) $customerTable.focus();
+        return;
+      }
+      if (tipo === "domicilio" && !direccion) {
+        toast(lang === "en" ? "Enter your address" : "Escribe la dirección del domicilio");
+        $customerAddress.focus();
         return;
       }
       if (!firebaseEnabled || !fb.db) {
@@ -2166,7 +2218,7 @@ async function initFirebaseIfConfigured(){
         renderCart();
         updateCartBadge();
         closeOverlay($overlayCart);
-        alert(lang === "en" ? "Order sent successfully." : "Pedido enviado correctamente. En breve el equipo lo revisa.");
+        alert(lang === "en" ? "Order sent successfully." : "Pedido enviado correctamente. El sistema de La Parepa ya lo recibió.");
       } catch (error) {
         console.error("No se pudo enviar el pedido:", error);
         alert(lang === "en" ? "The order could not be sent. Please call a waiter." : "No se pudo enviar el pedido. Por favor llama al personal.");
@@ -2175,7 +2227,8 @@ async function initFirebaseIfConfigured(){
 
     function buildOrderPayload(){
       const now = new Date();
-      const mesa = ($customerTable?.value || "").trim();
+      const tipo = getSelectedOrderType();
+      const mesa = tipo === "domicilio" ? "" : ($customerTable?.value || "").trim();
       const nombre = ($customerName.value || "").trim();
       const notas = ($generalNotes.value || "").trim();
       const direccion = ($customerAddress.value || "").trim();
@@ -2195,6 +2248,10 @@ async function initFirebaseIfConfigured(){
         };
       }).filter(Boolean);
       const subtotal = items.reduce((acc, item) => acc + Number(item.total || 0), 0);
+      const costoDomicilio = getDeliveryFeeForOrder(subtotal);
+      const totalFinal = subtotal + costoDomicilio;
+      const tipoPedidoPOS = tipo === "domicilio" ? "Domicilio" : "Aquí";
+      const etiquetaTipo = tipo === "domicilio" ? "Domicilio" : (tipo === "local" ? "Para llevar" : "Mesa");
       const pedidoPOS = [];
       items.forEach(item => {
         for (let n = 0; n < Number(item.cantidad || 1); n++) {
@@ -2208,15 +2265,21 @@ async function initFirebaseIfConfigured(){
         origen: "catalogo",
         estado: "nuevo",
         mesa,
+        numeroMesa: mesa,
         cliente: nombre,
         direccion,
         observaciones: notas,
-        tipoPedido: "Aquí",
+        tipoPedido: tipoPedidoPOS,
+        tipoAtencion: tipo,
+        canalPedido: etiquetaTipo,
+        qrMesa: !!tableFromQr,
+        pedidoLocal: tipo !== "domicilio",
+        pedidoDomicilio: tipo === "domicilio",
         pedido: items,
         pedidoPOS,
         subtotalProductos: subtotal,
-        costoDomicilio: 0,
-        totalCobrado: subtotal,
+        costoDomicilio,
+        totalCobrado: totalFinal,
         total: subtotal,
         fechaISO: now.toISOString(),
         fecha: now.toLocaleString('es-CO'),
@@ -2240,9 +2303,16 @@ async function initFirebaseIfConfigured(){
       const mesa = ($customerTable?.value || tableFromQr || "").trim();
       const pill = document.getElementById("metaMesaPill");
       const meta = document.getElementById("metaMesa");
-      if (pill && meta && mesa) {
+      if (!pill || !meta) return;
+      if (getSelectedOrderType && getSelectedOrderType() === "domicilio") {
+        pill.style.display = "none";
+        return;
+      }
+      if (mesa) {
         pill.style.display = "inline-flex";
         meta.textContent = `Mesa ${mesa}`;
+      } else {
+        pill.style.display = "none";
       }
     }
 
@@ -2299,7 +2369,8 @@ async function initFirebaseIfConfigured(){
       cart: "cliente_cart_v1",
       filters: "cliente_filters_v1",
       customer: "cliente_customer_v1",
-      table: "cliente_table_v1"
+      table: "cliente_table_v1",
+      orderType: "cliente_order_type_v1"
     };
 
     // =========================================================
@@ -2407,6 +2478,9 @@ async function initFirebaseIfConfigured(){
     const $cartClear = document.getElementById("cartClear");
     const $cartWhats = document.getElementById("cartWhats");
     const $customerName = document.getElementById("customerName");
+    const $customerOrderType = document.getElementById("customerOrderType");
+    const $fieldCustomerTable = document.getElementById("fieldCustomerTable");
+    const $fieldCustomerAddress = document.getElementById("fieldCustomerAddress");
     const $customerTable = document.getElementById("customerTable");
     const $customerAddress = document.getElementById("customerAddress");
     const $generalNotes = document.getElementById("generalNotes");
@@ -2490,6 +2564,10 @@ function applyI18n(){
 
     // Customer persisted
     tableFromQr = getTableFromUrl();
+    if ($customerOrderType) {
+      $customerOrderType.value = tableFromQr ? "mesa" : (localStorage.getItem(LS.orderType) || "mesa");
+      if (tableFromQr) $customerOrderType.disabled = true;
+    }
     if ($customerTable) {
       $customerTable.value = tableFromQr || localStorage.getItem(LS.table) || "";
       if (tableFromQr) $customerTable.readOnly = true;
@@ -2497,6 +2575,7 @@ function applyI18n(){
     $customerName.value = customer.name || "";
     $customerAddress.value = customer.address || "";
     $generalNotes.value = customer.notes || "";
+    applyOrderTypeUI();
 
     // =========================================================
     // EVENTS
@@ -2584,9 +2663,15 @@ function applyI18n(){
         customer = { name: $customerName.value, address: $customerAddress.value, notes: $generalNotes.value };
         if ($customerTable) localStorage.setItem(LS.table, $customerTable.value || "");
         writeJSON(LS.customer, customer);
-        applyTableUI();
+        applyOrderTypeUI();
       });
     });
+    if ($customerOrderType) {
+      $customerOrderType.addEventListener("change", () => {
+        localStorage.setItem(LS.orderType, getSelectedOrderType());
+        applyOrderTypeUI();
+      });
+    }
 
     // Theme toggle
     $btnTheme.addEventListener("click", () => {
@@ -3381,7 +3466,7 @@ function applyI18n(){
         return sum + unit * i.qty;
       }, 0);
 
-      const delivery = (store.deliveryFee && subtotal > 0) ? Number(store.deliveryFee) : 0;
+      const delivery = getDeliveryFeeForOrder(subtotal);
       const total = subtotal + delivery;
 
       $cartSubtotal.textContent = `${store.currency} ${formatMoney(subtotal)}`;
@@ -3452,7 +3537,7 @@ function applyI18n(){
         if (!p) return sum;
         return sum + computeUnitPrice(p, i) * i.qty;
       }, 0);
-      const delivery = (store.deliveryFee && subtotal > 0) ? Number(store.deliveryFee) : 0;
+      const delivery = getDeliveryFeeForOrder(subtotal);
       const total = subtotal + delivery;
 
       const header = lang==="en" ? `Hi! I'd like to order from ${storeText("name")}:` : `Hola, quiero hacer un pedido en ${storeText("name")}:`;
