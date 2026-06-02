@@ -991,6 +991,25 @@
     .fab:hover{ background: color-mix(in srgb, var(--success) 16%, transparent); }
     .fab:active{ transform: translateY(1px); }
     .fab svg{ width: 18px; height: 18px; }
+    .fab.cart-ready,
+    #btnCart.cart-ready{
+      border-color: color-mix(in srgb, var(--accent) 78%, white 8%);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 92%, white 8%), color-mix(in srgb, var(--danger) 72%, var(--accent) 28%));
+      color: #fff;
+      box-shadow: 0 18px 46px rgba(126, 31, 31, .26), 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+    .fab.cart-ready{
+      transform: translateY(-2px);
+    }
+    .fab.cart-pulse,
+    #btnCart.cart-pulse{
+      animation: cartAttention .9s ease-in-out 0s 3;
+    }
+    @keyframes cartAttention{
+      0%,100%{ transform: scale(1); }
+      42%{ transform: scale(1.06); }
+      70%{ transform: scale(.99); }
+    }
 
     .toast{
       position: fixed;
@@ -1863,7 +1882,7 @@ html[data-theme="dark"] .foot b{ color: var(--accent2) !important; }
         tag_spicy: "Picante",
         tag_dairyfree: "Sin lácteos",
 
-        toast_added: "Agregado al carrito ✔",
+        toast_added: "Se agregó al carrito ✔ Toca ‘Ver pedido’ para revisar y enviar.",
         toast_updated: "Carrito actualizado ✔",
         toast_copied: "Copiado ✔",
         toast_link_copied: "Link copiado ✔",
@@ -1949,7 +1968,7 @@ html[data-theme="dark"] .foot b{ color: var(--accent2) !important; }
         tag_spicy: "Spicy",
         tag_dairyfree: "Dairy-free",
 
-        toast_added: "Added to cart ✔",
+        toast_added: "Added to cart ✔ Tap ‘View order’ to review and send.",
         toast_updated: "Cart updated ✔",
         toast_copied: "Copied ✔",
         toast_link_copied: "Link copied ✔",
@@ -3423,13 +3442,9 @@ function applyI18n(){
 
       writeJSON(LS.cart, cart);
       renderCart();
-      updateCartBadge();
-      toast(t("toast_added"));
-
-      // Suggest open cart on first add
-      if (cart.items.length === 1){
-        setTimeout(() => openOverlay($overlayCart, $cartClose), 250);
-      }
+      updateCartBadge({ pulse: true });
+      closeProductModal();
+      toast(t("toast_added"), 3200);
     }
 
     function closeProductModal(){
@@ -3536,14 +3551,33 @@ function applyI18n(){
       `;
     }
 
-    function updateCartBadge(){
+    function updateCartBadge(opts = {}){
       const count = cart.items.reduce((sum, i) => sum + (Number(i.qty)||0), 0);
-      if (count > 0){
+      const hasItems = count > 0;
+      if (hasItems){
         $cartCount.style.display = "inline-flex";
         $cartCount.textContent = String(count);
       } else {
         $cartCount.style.display = "none";
       }
+      [$btnCart, $fabWhats].forEach(btn => {
+        if (!btn) return;
+        btn.classList.toggle("cart-ready", hasItems);
+        if (hasItems) btn.setAttribute("title", lang === "en" ? "View your order and send it" : "Ver tu pedido y enviarlo");
+        else btn.setAttribute("title", lang === "en" ? "View order" : "Ver pedido");
+      });
+      if (opts && opts.pulse) highlightCartButton();
+    }
+
+    function highlightCartButton(){
+      [$btnCart, $fabWhats].forEach(btn => {
+        if (!btn) return;
+        btn.classList.remove("cart-pulse");
+        void btn.offsetWidth;
+        btn.classList.add("cart-pulse");
+        clearTimeout(btn._cartPulseTimer);
+        btn._cartPulseTimer = setTimeout(() => btn.classList.remove("cart-pulse"), 2800);
+      });
     }
 
     function buildSingleItemMessage(p, sel){
